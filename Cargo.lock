@@ -5697,7 +5697,7 @@ dependencies = [
 [[package]]
 name = "surfman"
 version = "0.2.0"
-source = "git+https://github.com/asajeffrey/surfman?branch=servo-surfmanup#94583bae4bba2ec8762a374abb330c8cf1be221a"
+source = "git+https://github.com/asajeffrey/surfman?branch=servo-surfmanup#7a1aa8656877b2de0a5b686f7a32ccc3e81fc961"
 dependencies = [
  "bitflags",
  "cgl 0.3.2",
