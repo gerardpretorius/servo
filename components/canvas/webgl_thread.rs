@@ -413,7 +413,7 @@ impl WebGLThread {
                     .unwrap();
             },
             WebGLMsg::ResizeContext(ctx_id, size, sender) => {
-                self.resize_webgl_context(ctx_id, size, sender);
+                let _ = sender.send(self.resize_webgl_context(ctx_id, size));
             },
             WebGLMsg::RemoveContext(ctx_id) => {
                 self.remove_webgl_context(ctx_id);
@@ -540,7 +540,7 @@ impl WebGLThread {
         let context_descriptor = self
             .device
             .create_context_descriptor(&context_attributes)
-            .expect("Failed to create context descriptor");
+            .map_err(|err| format!("Failed to create context descriptor: {:?}", err))?;
 
         let safe_size = Size2D::new(
             requested_size.width.min(SAFE_VIEWPORT_DIMS[0]).max(1),
@@ -555,30 +555,30 @@ impl WebGLThread {
         let mut ctx = self
             .device
             .create_context(&context_descriptor)
-            .expect("Failed to create the GL context!");
+            .map_err(|err| format!("Failed to create the GL context: {:?}", err))?;
         let surface = self
             .device
             .create_surface(&ctx, surface_access, surface_type)
-            .expect("Failed to create the initial surface!");
+            .map_err(|err| format!("Failed to create the initial surface: {:?}", err))?;
         self.device
             .bind_surface_to_context(&mut ctx, surface)
-            .unwrap();
+            .map_err(|err| format!("Failed to bind initial surface: {:?}", err))?;
         // https://github.com/pcwalton/surfman/issues/7
         self.device
             .make_context_current(&ctx)
-            .expect("failed to make new context current");
+            .map_err(|err| format!("Failed to make new context current: {:?}", err))?;
 
         let id = WebGLContextId(
             self.external_images
                 .lock()
-                .unwrap()
+                .expect("Lock poisoned?")
                 .next_id(WebrenderImageHandlerType::WebGL)
                 .0,
         );
 
         self.webrender_swap_chains
             .create_attached_swap_chain(id, &mut self.device, &mut ctx, surface_provider)
-            .expect("Failed to create the swap chain");
+            .map_err(|err| format!("Failed to create swap chain: {:?}", err))?;
 
         let swap_chain = self
             .webrender_swap_chains
@@ -607,7 +607,7 @@ impl WebGLThread {
             debug!("Resizing swap chain from {} to {}", safe_size, size);
             swap_chain
                 .resize(&mut self.device, &mut ctx, size.to_i32())
-                .expect("Failed to resize swap chain");
+                .map_err(|err| format!("Failed to resize swap chain: {:?}", err))?;
         }
 
         let descriptor = self.device.context_descriptor(&ctx);
@@ -620,8 +620,8 @@ impl WebGLThread {
         let framebuffer = self
             .device
             .context_surface_info(&ctx)
-            .unwrap()
-            .unwrap()
+            .map_err(|err| format!("Failed to get context surface info: {:?}", err))?
+            .ok_or_else(|| format!("Failed to get context surface info"))?
             .framebuffer_object;
 
         gl.bind_framebuffer(gl::FRAMEBUFFER, framebuffer);
@@ -686,8 +686,7 @@ impl WebGLThread {
         &mut self,
         context_id: WebGLContextId,
         requested_size: Size2D<u32>,
-        sender: WebGLSender<Result<(), String>>,
-    ) {
+    ) -> Result<(), String> {
         let data = Self::make_current_if_needed_mut(
             &self.device,
             context_id,
@@ -712,10 +711,10 @@ impl WebGLThread {
             let clear_color = [0.0, 0.0, 0.0, !alpha as i32 as f32];
             swap_chain
                 .resize(&mut self.device, &mut data.ctx, size.to_i32())
-                .expect("Failed to resize swap chain");
+                .map_err(|err| format!("Failed to resize swap chain: {:?}", err))?;
             swap_chain
                 .clear_surface(&mut self.device, &mut data.ctx, &*data.gl, clear_color)
-                .expect("Failed to clear resized swap chain");
+                .map_err(|err| format!("Failed to clear resized swap chain: {:?}", err))?;
         } else {
             error!("Failed to find swap chain");
         }
@@ -741,7 +740,7 @@ impl WebGLThread {
 
         debug_assert_eq!(data.gl.get_error(), gl::NO_ERROR);
 
-        sender.send(Ok(())).unwrap();
+        Ok(())
     }
 
     /// Removes a WebGLContext and releases attached resources.
